@@ -1,0 +1,97 @@
+import streamlit as st
+import pandas as pd
+import numpy as np
+from datetime import datetime
+
+st.set_page_config(page_title="Dummy Nifty Option Chain", layout="wide")
+st.title("📈 Nifty 50 Option Chain - Dummy Data (OI vs Price)")
+
+# Generate dummy data
+strike_prices = list(range(16900, 17150 + 1, 50))
+df = pd.DataFrame({
+    'Strike Price': strike_prices,
+    'CE OI_prev': np.random.randint(10000, 90000, len(strike_prices)),
+    'CE OI': np.random.randint(10000, 90000, len(strike_prices)),
+    'CE Price_prev': np.random.uniform(50, 200, len(strike_prices)),
+    'CE LTP': np.random.uniform(50, 200, len(strike_prices)),
+    'PE OI_prev': np.random.randint(10000, 90000, len(strike_prices)),
+    'PE OI': np.random.randint(10000, 90000, len(strike_prices)),
+    'PE Price_prev': np.random.uniform(50, 200, len(strike_prices)),
+    'PE LTP': np.random.uniform(50, 200, len(strike_prices)),
+    'CE Volume': np.random.randint(100, 1000, len(strike_prices)),
+    'PE Volume': np.random.randint(100, 1000, len(strike_prices)),
+    'CE IV': np.round(np.random.uniform(10, 30, len(strike_prices)), 2),
+    'PE IV': np.round(np.random.uniform(10, 30, len(strike_prices)), 2),
+})
+
+# Calculate change columns
+df['CE PCHNG'] = df['CE LTP'] - df['CE Price_prev']
+df['PE PCHNG'] = df['PE LTP'] - df['PE Price_prev']
+df['CE OI Change'] = df['CE OI'] - df['CE OI_prev']
+df['PE OI Change'] = df['PE OI'] - df['PE OI_prev']
+
+# Add interpretation columns (initially empty)
+df['CE Interpretation'] = ''
+df['PE Interpretation'] = ''
+
+# Display index and PCR
+underlying = 17000
+now = datetime.now().strftime("%H:%M:%S")
+oi_pcr = df['PE OI'].sum() / df['CE OI'].sum()
+st.subheader(f"📍 Underlying Index: {underlying} (Dummy) at {now}")
+st.subheader(f"📊 OI PCR: {oi_pcr:.2f}")
+
+# Main table
+display_df = df[[
+    'CE Interpretation', 'CE OI', 'CE Volume', 'CE IV', 'CE LTP', 'CE PCHNG',
+    'Strike Price',
+    'PE Interpretation', 'PE OI', 'PE Volume', 'PE IV', 'PE LTP', 'PE PCHNG'
+]]
+st.dataframe(display_df, use_container_width=True)
+
+# Charts
+st.line_chart(df.set_index("Strike Price")[["CE OI", "PE OI"]])
+st.line_chart(df.set_index("Strike Price")[["CE LTP", "PE LTP"]])
+
+# Add strike price selection for interpretation table
+selected_strikes = st.multiselect(
+    "📌 Select Strike Prices for Long/Short Analysis", options=strike_prices, default=[17000]
+)
+
+# Interpretation logic
+def interpret(price_chg, oi_chg):
+    if price_chg > 0 and oi_chg > 0:
+        return "Long Build-Up"
+    elif price_chg < 0 and oi_chg > 0:
+        return "Short Build-Up"
+    elif price_chg < 0 and oi_chg < 0:
+        return "Long Unwinding"
+    elif price_chg > 0 and oi_chg < 0:
+        return "Short Covering"
+    return ""
+
+# Apply interpretation for selected strikes only
+if selected_strikes:
+    selected_df = df[df['Strike Price'].isin(selected_strikes)].copy()
+
+    selected_df['CE Interpretation'] = selected_df.apply(
+        lambda x: interpret(x['CE PCHNG'], x['CE OI Change']), axis=1
+    )
+    selected_df['PE Interpretation'] = selected_df.apply(
+        lambda x: interpret(x['PE PCHNG'], x['PE OI Change']), axis=1
+    )
+
+    # Show interpretation tables
+    st.subheader("📘 CE Long vs Short Interpretation (Selected Strikes)")
+    ce_table = selected_df[[
+        'Strike Price', 'CE OI Change', 'CE PCHNG', 'CE Interpretation'
+    ]].reset_index(drop=True)
+    st.dataframe(ce_table, use_container_width=True)
+
+    st.subheader("📙 PE Long vs Short Interpretation (Selected Strikes)")
+    pe_table = selected_df[[
+        'Strike Price', 'PE OI Change', 'PE PCHNG', 'PE Interpretation'
+    ]].reset_index(drop=True)
+    st.dataframe(pe_table, use_container_width=True)
+else:
+    st.info("Please select at least one strike price.")
